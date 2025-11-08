@@ -1,0 +1,27 @@
+# Ignore frontend
+meebridge-frontend/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.sqlite3
+*.log
+
+# Virtual environment
+venv/
+.env/
+*.env
+
+# OS / IDE files
+.DS_Store
+.vscode/
+.idea/
+
+# Django static/media (if generated)
+staticfiles/
+media/
+
+# Node modules (in case frontend accidentally gets committed)
+node_modules/
