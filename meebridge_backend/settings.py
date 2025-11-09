@@ -173,6 +173,8 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # Custom User Model
 AUTH_USER_MODEL = 'users.User'
 
+# Booking defaults
+GOOGLE_MEET_LINK = os.environ.get('GOOGLE_MEET_LINK', 'https://meet.google.com/kro-egve-ssm')
 # REST Framework settings
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [

@@ -81,6 +81,7 @@ def _build_text_body(
     timezone_label: str,
     booking_status: str,
     notes: Optional[str],
+    meeting_link: Optional[str],
 ) -> str:
     lines = [
         f"Hi {attendee_name or 'there'},",
@@ -89,6 +90,9 @@ def _build_text_body(
         f"Scheduled for: {schedule_line} ({timezone_label})",
         f"Current status: {booking_status}",
     ]
+
+    if meeting_link:
+        lines.extend(["", f"Join Google Meet: {meeting_link}"])
 
     if notes:
         lines.extend(["", "Notes:", notes])
@@ -115,6 +119,7 @@ def _build_html_body(
     timezone_label: str,
     booking_status: str,
     notes: Optional[str],
+    meeting_link: Optional[str],
 ) -> str:
     notes_block = ""
     if notes:
@@ -124,6 +129,22 @@ def _build_html_body(
               <td style="padding: 20px 32px; background-color: #f8fafc;">
                 <h3 style="margin: 0 0 8px; font-size: 15px; color: #0f172a; font-weight: 600;">Notes</h3>
                 <p style="margin: 0; font-size: 15px; line-height: 1.6; color: #475569;">{formatted_notes}</p>
+              </td>
+            </tr>
+        """
+
+    meeting_link_block = ""
+    if meeting_link:
+        meeting_link_block = f"""
+            <tr>
+              <td style="padding:12px 36px;">
+                <a href="{escape(meeting_link)}" style="display:inline-block; padding:14px 24px; border-radius:999px; background:linear-gradient(135deg,#34d399,#10b981); color:#ffffff; text-decoration:none; font-weight:600; font-size:15px;">
+                  Join Google Meet
+                </a>
+                <p style="margin:12px 0 0; font-size:14px; color:#64748b;">
+                  Or copy this link into your browser:<br>
+                  <a href="{escape(meeting_link)}" style="color:#1d4ed8; text-decoration:none;">{escape(meeting_link)}</a>
+                </p>
               </td>
             </tr>
         """
@@ -177,6 +198,7 @@ def _build_html_body(
               </td>
             </tr>
             {notes_block}
+            {meeting_link_block}
             <tr>
               <td style="padding:24px 32px 40px;">
                 <p style="margin:0; font-size:14px; color:#64748b; line-height:1.7;">
@@ -222,6 +244,7 @@ def send_booking_email(booking: Booking, *, action: Literal["created", "updated"
     schedule_line, timezone_label = _format_schedule(booking)
     status_line = "confirmed" if action == "created" else "updated"
     subject = f"Your booking is {status_line} - {meeting_title}"
+    meeting_link = getattr(settings, "GOOGLE_MEET_LINK", None)
 
     text_body = _build_text_body(
         booking.attendee_name or "there",
@@ -232,6 +255,7 @@ def send_booking_email(booking: Booking, *, action: Literal["created", "updated"
         timezone_label,
         booking.status.title(),
         booking.notes,
+        meeting_link,
     )
 
     html_body = _build_html_body(
@@ -243,6 +267,7 @@ def send_booking_email(booking: Booking, *, action: Literal["created", "updated"
         timezone_label,
         booking.status.title(),
         booking.notes,
+        meeting_link,
     )
 
     try:
