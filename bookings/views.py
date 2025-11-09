@@ -8,6 +8,7 @@ from datetime import timedelta, datetime
 from .models import Booking, Availability
 from .serializers import BookingSerializer, BookingCreateSerializer, AvailabilitySerializer
 from customers.models import Customer
+from .emails import send_booking_email
 
 
 class AvailabilityViewSet(viewsets.ModelViewSet):
@@ -24,6 +25,14 @@ class AvailabilityViewSet(viewsets.ModelViewSet):
 class BookingViewSet(viewsets.ModelViewSet):
     serializer_class = BookingSerializer
     permission_classes = [IsAuthenticated]
+
+    def perform_create(self, serializer):
+        booking = serializer.save()
+        transaction.on_commit(lambda: send_booking_email(booking, action='created'))
+
+    def perform_update(self, serializer):
+        booking = serializer.save()
+        transaction.on_commit(lambda: send_booking_email(booking, action='updated'))
 
     def get_queryset(self):
         # Get bookings for meeting pages owned by the user
@@ -80,6 +89,8 @@ class BookingViewSet(viewsets.ModelViewSet):
                         organization=organization or '',
                         metadata=user_input
                     )
+
+                transaction.on_commit(lambda: send_booking_email(booking, action='created'))
 
             return Response(BookingSerializer(booking).data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

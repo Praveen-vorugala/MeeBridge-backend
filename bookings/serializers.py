@@ -1,4 +1,6 @@
 from rest_framework import serializers
+from django.utils import timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from .models import Booking, Availability
 from meeting_pages.serializers import MeetingPageSerializer
 
@@ -56,5 +58,25 @@ class BookingCreateSerializer(serializers.ModelSerializer):
         validated_data.setdefault('attendee_name', '')
         validated_data.setdefault('notes', '')
         validated_data.setdefault('status', 'booked')
+
+        appointment_dt = validated_data.get('date')
+        user_input = validated_data.get('user_input') or {}
+
+        if appointment_dt and timezone.is_naive(appointment_dt):
+            tz_key = (
+                user_input.get('timezone')
+                or user_input.get('time_zone')
+                or user_input.get('timeZone')
+            )
+            tzinfo = timezone.get_default_timezone()
+            if tz_key:
+                try:
+                    tzinfo = ZoneInfo(tz_key)
+                except ZoneInfoNotFoundError:
+                    pass
+
+            localized = timezone.make_aware(appointment_dt, tzinfo)
+            validated_data['date'] = localized.astimezone(timezone.utc)
+
         return super().create(validated_data)
 

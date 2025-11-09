@@ -49,6 +49,7 @@ class Booking(models.Model):
     attendee_email = models.EmailField(blank=True, null=True)
     attendee_name = models.CharField(max_length=255, blank=True)
     notes = models.TextField(blank=True)
+    management_token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
