@@ -5,6 +5,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from django.utils import timezone
 from django.db import transaction
 from datetime import timedelta, datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from .models import Booking, Availability
 from .serializers import BookingSerializer, BookingCreateSerializer, AvailabilitySerializer
 from customers.models import Customer
@@ -65,30 +66,13 @@ class BookingViewSet(viewsets.ModelViewSet):
                     'metadata': user_input,
                 }
 
-                if attendee_email:
-                    customer, created = Customer.objects.get_or_create(
-                        email=attendee_email,
-                        defaults=customer_defaults
-                    )
-                    if not created:
-                        # Update metadata and other fields if customer already existed
-                        for key, value in customer_defaults.items():
-                            if value:
-                                if key == 'metadata':
-                                    merged = customer.metadata or {}
-                                    merged.update(value)
-                                    customer.metadata = merged
-                                else:
-                                    setattr(customer, key, value)
-                        customer.save()
-                else:
-                    Customer.objects.create(
-                        name=attendee_name or '',
-                        email=None,
-                        phone=phone or '',
-                        organization=organization or '',
-                        metadata=user_input
-                    )
+                Customer.objects.create(
+                    name=attendee_name or '',
+                    email=attendee_email,
+                    phone=phone or '',
+                    organization=organization or '',
+                    metadata=user_input
+                )
 
                 transaction.on_commit(lambda: send_booking_email(booking, action='created'))
 
@@ -127,6 +111,7 @@ class BookingViewSet(viewsets.ModelViewSet):
         """Get available time slots for a meeting page"""
         meeting_page_id = request.query_params.get('meeting_page_id')
         date = request.query_params.get('date')
+        tz_name = request.query_params.get('timezone')
 
         if not meeting_page_id or not date:
             return Response({'error': 'meeting_page_id and date are required'},
@@ -148,61 +133,58 @@ class BookingViewSet(viewsets.ModelViewSet):
                             status=status.HTTP_400_BAD_REQUEST)
 
         weekday = date_obj.weekday()
-        availabilities = Availability.objects.filter(
-            user=meeting_page.user,
-            weekday=weekday,
-            is_active=True
-        ).order_by('start_time')
+        if tz_name:
+            try:
+                target_tz = ZoneInfo(tz_name)
+            except ZoneInfoNotFoundError:
+                target_tz = timezone.get_default_timezone()
+        else:
+            target_tz = timezone.get_default_timezone()
 
-        if not availabilities.exists():
-            return Response({'slots': [], 'message': 'No availability configured for this date.'})
-
-        # Gather existing bookings for the chosen day
-        current_tz = timezone.get_current_timezone()
-        start_of_day = timezone.make_aware(datetime.combine(date_obj, datetime.min.time()), current_tz)
+        start_of_day = timezone.make_aware(datetime.combine(date_obj, datetime.min.time()), target_tz)
         end_of_day = start_of_day + timedelta(days=1)
+
         existing_bookings = Booking.objects.filter(
-            meeting_page=meeting_page,
+            meeting_page__user=meeting_page.user,
             date__gte=start_of_day,
             date__lt=end_of_day,
-            status='booked'
-        )
+        ).order_by('date')
 
-        duration = meeting_page.duration_minutes or 30
-        slot_delta = timedelta(minutes=duration)
-        now = timezone.now()
         slots = []
 
-        for availability in availabilities:
-            start_dt = datetime.combine(date_obj, availability.start_time)
-            end_dt = datetime.combine(date_obj, availability.end_time)
+        for booking in existing_bookings:
+            user_input = booking.user_input or {}
+            selected_date = user_input.get('selected_date')
+            selected_time = user_input.get('selected_time')
+            booking_tz = user_input.get('timezone') or tz_name
+            fallback_start = booking.date.astimezone(target_tz)
 
-            start_dt = timezone.make_aware(start_dt, current_tz) if timezone.is_naive(start_dt) else timezone.localtime(start_dt, current_tz)
-            end_dt = timezone.make_aware(end_dt, current_tz) if timezone.is_naive(end_dt) else timezone.localtime(end_dt, current_tz)
+            if selected_date and selected_time:
+                time_str = selected_time if len(selected_time) > 5 else f"{selected_time}:00"
+                dt_str = f"{selected_date}T{time_str}"
+                try:
+                    booking_tzinfo = ZoneInfo(booking_tz) if booking_tz else target_tz
+                except ZoneInfoNotFoundError:
+                    booking_tzinfo = target_tz
 
-            current_slot_start = start_dt
-            while current_slot_start + slot_delta <= end_dt:
-                current_slot_end = current_slot_start + slot_delta
+                try:
+                    parsed_dt = datetime.fromisoformat(dt_str)
+                    if parsed_dt.tzinfo is None:
+                        parsed_dt = parsed_dt.replace(tzinfo=booking_tzinfo)
+                    booking_start = parsed_dt.astimezone(target_tz)
+                except ValueError:
+                    booking_start = fallback_start
+            else:
+                booking_start = fallback_start
 
-                # Skip slots in the past
-                if current_slot_end <= now:
-                    current_slot_start += slot_delta
-                    continue
-
-                # Check overlap with existing bookings
-                overlap_exists = existing_bookings.filter(
-                    date__gte=current_slot_start,
-                    date__lt=current_slot_end
-                ).exists()
-
-                if not overlap_exists:
-                    slots.append({
-                        'time': current_slot_start.isoformat(),
-                        'end_time': current_slot_end.isoformat(),
-                        'display': timezone.localtime(current_slot_start, current_tz).strftime('%I:%M %p'),
-                        'duration_minutes': duration
-                    })
-
-                current_slot_start = current_slot_end
+            slots.append({
+                'time': booking_start.isoformat(),
+                'display': booking_start.strftime('%I:%M %p'),
+                'duration_minutes': booking.meeting_page.duration_minutes if booking.meeting_page else None,
+                'status': booking.status,
+                'booking_id': str(booking.id),
+                'attendee_name': booking.attendee_name,
+                'attendee_email': booking.attendee_email,
+            })
 
         return Response({'slots': slots})

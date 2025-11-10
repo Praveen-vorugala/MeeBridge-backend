@@ -5,7 +5,7 @@ import uuid
 class Customer(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=255, blank=True)
-    email = models.EmailField(unique=True, blank=True, null=True)
+    email = models.EmailField(blank=True, null=True)
     phone = models.CharField(max_length=20, blank=True)
     organization = models.CharField(max_length=255, blank=True)
     metadata = models.JSONField(default=dict, blank=True)
