@@ -12,6 +12,9 @@ from .models import Booking
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_PRIMARY_COLOR = "#4f46e5"
+DEFAULT_ACCENT_COLOR = "#7c3aed"
+
 
 def _get_recipient_email(booking: Booking) -> Optional[str]:
     if booking.attendee_email:
@@ -37,6 +40,34 @@ def _resolve_display_timezone(booking: Booking):
                 booking.id,
             )
     return timezone.get_default_timezone()
+
+
+def _normalize_hex(color: Optional[str], fallback: str) -> str:
+    if not color:
+        return fallback
+    hex_color = color.strip()
+    if not hex_color.startswith("#"):
+        hex_color = f"#{hex_color}"
+    hex_color = hex_color.lower()
+    if len(hex_color) == 4:
+        hex_color = "#" + "".join(ch * 2 for ch in hex_color[1:])
+    if len(hex_color) != 7:
+        return fallback
+    allowed = "0123456789abcdef"
+    if not all(ch in allowed for ch in hex_color[1:]):
+        return fallback
+    return hex_color
+
+
+def _hex_to_rgba(color: str, alpha: float, fallback: str) -> str:
+    hex_color = color.lstrip("#")
+    try:
+        r = int(hex_color[0:2], 16)
+        g = int(hex_color[2:4], 16)
+        b = int(hex_color[4:6], 16)
+    except (ValueError, IndexError):
+        return fallback
+    return f"rgba({r}, {g}, {b}, {alpha})"
 
 
 def _format_schedule(booking: Booking):
@@ -120,15 +151,20 @@ def _build_html_body(
     booking_status: str,
     notes: Optional[str],
     meeting_link: Optional[str],
+    *,
+    primary_color: str,
+    accent_color: str,
+    primary_light: str,
+    accent_light: str,
 ) -> str:
     notes_block = ""
     if notes:
         formatted_notes = escape(notes).replace("\n", "<br>")
         notes_block = f"""
             <tr>
-              <td style="padding: 20px 32px; background-color: #f8fafc;">
-                <h3 style="margin: 0 0 8px; font-size: 15px; color: #0f172a; font-weight: 600;">Notes</h3>
-                <p style="margin: 0; font-size: 15px; line-height: 1.6; color: #475569;">{formatted_notes}</p>
+              <td style="padding: 20px 32px; background-color: {escape(accent_light)};">
+                <h3 style="margin: 0 0 8px; font-size: 15px; color: {escape(accent_color)}; font-weight: 600;">Notes</h3>
+                <p style="margin: 0; font-size: 15px; line-height: 1.6; color: #334155;">{formatted_notes}</p>
               </td>
             </tr>
         """
@@ -138,12 +174,12 @@ def _build_html_body(
         meeting_link_block = f"""
             <tr>
               <td style="padding:12px 36px;">
-                <a href="{escape(meeting_link)}" style="display:inline-block; padding:14px 24px; border-radius:999px; background:linear-gradient(135deg,#34d399,#10b981); color:#ffffff; text-decoration:none; font-weight:600; font-size:15px;">
+                <a href="{escape(meeting_link)}" style="display:inline-block; padding:14px 24px; border-radius:999px; background:linear-gradient(135deg,{escape(primary_color)},{escape(accent_color)}); color:#ffffff; text-decoration:none; font-weight:600; font-size:15px;">
                   Join Google Meet
                 </a>
                 <p style="margin:12px 0 0; font-size:14px; color:#64748b;">
                   Or copy this link into your browser:<br>
-                  <a href="{escape(meeting_link)}" style="color:#1d4ed8; text-decoration:none;">{escape(meeting_link)}</a>
+                  <a href="{escape(meeting_link)}" style="color:{escape(primary_color)}; text-decoration:none;">{escape(meeting_link)}</a>
                 </p>
               </td>
             </tr>
@@ -156,13 +192,13 @@ def _build_html_body(
     <meta charset="utf-8">
     <title>{escape(meeting_title)} booking {escape(status_line)}</title>
   </head>
-  <body style="margin:0; padding:0; background-color:#eef2ff; font-family:'Helvetica Neue', Arial, sans-serif; color:#0f172a;">
+  <body style="margin:0; padding:0; background-color:{escape(primary_light)}; font-family:'Helvetica Neue', Arial, sans-serif; color:#0f172a;">
     <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;">
       <tr>
         <td align="center" style="padding:36px 16px;">
-          <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width:640px; background-color:#ffffff; border-radius:24px; overflow:hidden; box-shadow:0 18px 45px rgba(79,70,229,0.12); border:1px solid rgba(99,102,241,0.08);">
+          <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width:640px; background-color:#ffffff; border-radius:24px; overflow:hidden; box-shadow:0 18px 45px {escape(primary_light)}; border:1px solid {escape(accent_light)};">
             <tr>
-              <td style="padding:40px; background:linear-gradient(135deg,#4f46e5,#7c3aed);">
+              <td style="padding:40px; background:linear-gradient(135deg,{escape(primary_color)},{escape(accent_color)});">
                 <p style="margin:0 0 6px; font-size:13px; letter-spacing:1.4px; text-transform:uppercase; color:rgba(255,255,255,0.72); font-weight:600;">Booking {escape(status_line)}</p>
                 <h1 style="margin:0; font-size:28px; line-height:1.3; color:#ffffff;">{escape(meeting_title)}</h1>
                 <p style="margin:16px 0 0; font-size:15px; color:rgba(255,255,255,0.88); line-height:1.6;">
@@ -182,15 +218,15 @@ def _build_html_body(
               <td style="padding:12px 36px 28px;">
                 <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:separate; border-spacing:0 12px;">
                   <tr>
-                    <td style="padding:18px 24px; background-color:#f8fafc; border-radius:16px;">
-                      <p style="margin:0; font-size:12px; text-transform:uppercase; letter-spacing:1px; color:#6366f1; font-weight:600;">Scheduled for</p>
+                    <td style="padding:18px 24px; background-color:{escape(primary_light)}; border-radius:16px;">
+                      <p style="margin:0; font-size:12px; text-transform:uppercase; letter-spacing:1px; color:{escape(primary_color)}; font-weight:600;">Scheduled for</p>
                       <p style="margin:6px 0 0; font-size:18px; font-weight:600; color:#0f172a;">{escape(schedule_line)}</p>
                       <p style="margin:4px 0 0; font-size:14px; color:#64748b;">Timezone: {escape(timezone_label)}</p>
                     </td>
                   </tr>
                   <tr>
-                    <td style="padding:18px 24px; background-color:#f8fafc; border-radius:16px;">
-                      <p style="margin:0; font-size:12px; text-transform:uppercase; letter-spacing:1px; color:#6366f1; font-weight:600;">Status</p>
+                    <td style="padding:18px 24px; background-color:{escape(accent_light)}; border-radius:16px;">
+                      <p style="margin:0; font-size:12px; text-transform:uppercase; letter-spacing:1px; color:{escape(accent_color)}; font-weight:600;">Status</p>
                       <p style="margin:6px 0 0; font-size:18px; font-weight:600; color:#0f172a;">{escape(booking_status)}</p>
                     </td>
                   </tr>
@@ -246,6 +282,12 @@ def send_booking_email(booking: Booking, *, action: Literal["created", "updated"
     subject = f"Your booking is {status_line} - {meeting_title}"
     meeting_link = getattr(settings, "GOOGLE_MEET_LINK", None)
 
+    theme = getattr(booking.meeting_page, "theme", {}) or {}
+    primary_color = _normalize_hex(theme.get("primaryColor"), DEFAULT_PRIMARY_COLOR)
+    accent_color = _normalize_hex(theme.get("accentColor"), DEFAULT_ACCENT_COLOR)
+    primary_light = _hex_to_rgba(primary_color, 0.12, "rgba(79, 70, 229, 0.12)")
+    accent_light = _hex_to_rgba(accent_color, 0.18, "rgba(124, 58, 237, 0.18)")
+
     text_body = _build_text_body(
         booking.attendee_name or "there",
         meeting_owner,
@@ -268,6 +310,10 @@ def send_booking_email(booking: Booking, *, action: Literal["created", "updated"
         booking.status.title(),
         booking.notes,
         meeting_link,
+        primary_color=primary_color,
+        accent_color=accent_color,
+        primary_light=primary_light,
+        accent_light=accent_light,
     )
 
     try:
